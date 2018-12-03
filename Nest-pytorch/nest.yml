@@ -1,0 +1,12 @@
+author: Zhou, Yanzhao
+version: 0.1.0
+backend: pytorch
+url: https://github.com/ZhouYanzhao/Nest
+module_path: './install'
+requirements:
+  - torch>=0.4.0
+  - torchvision>=0.2.1
+  - tqdm>=4.15.0
+  - visdom>=0.1.8.3
+  - numpy>=1.14.3
+  - scipy>=1.0.1

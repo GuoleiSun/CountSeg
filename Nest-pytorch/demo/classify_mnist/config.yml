@@ -1,0 +1,52 @@
+_name: network_trainer
+data_loaders:
+  _name: fetch_data
+  dataset: 
+    _name: mnist
+    data_dir: ./data
+  batch_size: 128
+  num_workers: 4
+  transform:
+    _name: image_transform
+    image_size: 28
+    mean: [0.1307]
+    std: [0.3081]
+  train_splits:
+    - train
+  test_splits:
+    - test
+model:
+  _name: lenet5
+criterion:
+  _name: cross_entropy_loss
+optimizer:
+  _name: adadelta_optimizer
+meters:
+  loss:
+    _name: loss_meter
+  top1:
+    _name: topk_meter
+    k: 1
+max_epoch: 10
+device: cpu
+hooks:
+  on_start:
+    -
+      _name: print_state
+      formats:
+        - '@CONFIG'
+        - 'Model: {model}'
+      join_str: '\n'
+  on_end_epoch: 
+    - 
+      _name: print_state
+      formats:
+        - 'epoch: {epoch_idx}'
+        - 'train_loss: {metrics[train_loss]:.2f}'
+        - 'train_top1: {metrics[train_top1]:.1f}%'
+        - 'test_loss: {metrics[test_loss]:.2f}'
+        - 'test_top1: {metrics[test_top1]:.1f}%'
+    -
+      _name: checkpoint
+      save_dir: './snapshots'
+      save_step: 1

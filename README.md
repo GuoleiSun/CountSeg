@@ -1,5 +1,3 @@
 # weaking_supervised_counting_ins_segmentation
-weakly supervised counting and instance segmentation via density map
+Object counting and instance segmentation with image-level supervision, in CVPR 2019
 
-
-sdfghjkljhgfdsfghjkl

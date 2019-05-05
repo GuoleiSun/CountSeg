@@ -23,11 +23,11 @@ Download this respority and unzip it. Make sure that the folders look like this:
   ├── ...
   ```
 1. Go inside to CountSeg folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
-1. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
+2. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
    ```
    pip install git+https://github.com/ZhouYanzhao/Nest.git
    ```
-2. Install PRM via Nest's CLI tool
+3. Install PRM via Nest's CLI tool
    ```
    nest module install ./PRM-pytorch prm
    ```
@@ -41,7 +41,25 @@ Download this respority and unzip it. Make sure that the folders look like this:
    #[2] prm.prm_visualize (1.0.0)
    ```
    If you get some error, it is because that you miss some packages. Install them and do the validation again until you can ge t something like above
-3. Install Nest's build-in Pytorch modules
+4. Install Nest's build-in Pytorch modules
    ```
    nest module install ./Nest-pytorch pytorch
    ```
+
+## Test
+To reproduce the numbers reproted in the paper.
+1. Pascal 2007 counting
+   ```
+   cd path/CountSeg
+   jupyter notebook
+   ```
+   Then open eval_counting_pascal07.ipynb and simply run each cell inside it.
+2. COCO 2014 counting. Open jupyter notebook and open eval_counting_coco14.ipynb
+
+## Training
+1. Pascal 2007 and COCO 2014 counting. 
+   ```
+   cd path/CountSeg/experiments
+   jupyter notebook
+   ```
+   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COOC, respectively.  

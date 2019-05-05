@@ -1,7 +1,7 @@
 # weaking_supervised_counting_ins_segmentation
 Object counting and instance segmentation with image-level supervision, in CVPR 2019
 
-![alt text](https://raw.githubusercontent.com/username/projectname/branch/path/to/img.png)
+![block images](https://github.com/GuoleiSun/CountSeg/upload/master/demo/images/block.png)
 
 
 Requirements:

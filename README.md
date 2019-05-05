@@ -10,6 +10,7 @@ Object counting and instance segmentation with image-level supervision, in CVPR 
 3. Python>=3.6
 4. Pytorch version 0.4 
 5. Jupyter Notebook and ipywidgets 
+6. Other common packages: numpy, scipy, and so on. Please refer to environment.yml.
 
 ## Installation:
 Download this respority and unzip it. Make sure that the folders look like this:

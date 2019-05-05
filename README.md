@@ -1,6 +1,6 @@
 # weaking_supervised_counting_ins_segmentation
 Object counting and instance segmentation with image-level supervision, in CVPR 2019
-
+[paper](https://arxiv.org/abs/1903.02494)
 ![block images](https://github.com/GuoleiSun/CountSeg/blob/master/demo/images/block.png)
 
 
@@ -63,3 +63,14 @@ To reproduce the numbers reproted in the paper.
    jupyter notebook
    ```
    Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COOC, respectively.  
+   
+## Citation 
+If you find the code useful for your research, please cite:
+```bibtex
+@INPROCEEDINGS{cholakkal_sun2019object,
+    author = {Cholakkal, Hisham and Sun, Guolei and Khan, Fahad Shahbaz and Shao, Ling},
+    title = {Object Counting and Instance Segmentation with Image-level Supervision},
+    booktitle = {CVPR},
+    year = {2019}
+}
+```

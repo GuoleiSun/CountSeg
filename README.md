@@ -23,7 +23,7 @@ Download this respority and unzip it. Make sure that the folders look like this:
   ├── ...
   ```
 1. Go inside to CountSeg folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
-1. Install Nest, a flexible tool for building and sharing deep learning modules, created by Yanzhao
+1. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
    ```
    pip install git+https://github.com/ZhouYanzhao/Nest.git
    ```

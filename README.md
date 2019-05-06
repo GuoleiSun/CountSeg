@@ -56,7 +56,7 @@ To reproduce the results reproted in the paper.
    jupyter notebook
    ```
    Then open eval_counting_pascal07.ipynb and simply run each cell inside it.
-2. COCO 2014 counting. Open jupyter notebook and open eval_counting_coco14.ipynb
+2. COCO 2014 counting. Open jupyter notebook and run eval_counting_coco14.ipynb
 
 ## Training
 1. Pascal 2007 and COCO 2014 counting. 

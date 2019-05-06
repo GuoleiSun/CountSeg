@@ -49,7 +49,7 @@ Download this respority and unzip it. Make sure that the folders look like this:
    ```
 
 ## Test
-To reproduce the numbers reproted in the paper.
+To reproduce the results reproted in the paper.
 1. Pascal 2007 counting
    ```
    cd path/CountSeg
@@ -64,7 +64,7 @@ To reproduce the numbers reproted in the paper.
    cd path/CountSeg/experiments
    jupyter notebook
    ```
-   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COOC, respectively.  
+   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COCO, respectively.  
    
 ## Citation 
 If you find the code useful for your research, please cite:

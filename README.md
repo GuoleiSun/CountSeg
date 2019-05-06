@@ -64,7 +64,7 @@ To reproduce the results reproted in the paper.
    cd path/CountSeg/experiments
    jupyter notebook
    ```
-   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COCO, respectively.  
+   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COCO, respectively. 
    
 ## Citation 
 If you find the code useful for your research, please cite:

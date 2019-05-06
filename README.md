@@ -59,7 +59,7 @@ To reproduce the results reproted in the paper.
 2. COCO 2014 counting. Open jupyter notebook and run eval_counting_coco14.ipynb
 
 ## Training
-1. Pascal 2007 and COCO 2014 counting. 
+1. Pascal 2007 and COCO 2014. 
    ```
    cd path/CountSeg/experiments
    jupyter notebook

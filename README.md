@@ -42,7 +42,7 @@ Download this respority and unzip it. Make sure that the folders look like this:
    #[1] prm.peak_response_mapping (1.0.0)
    #[2] prm.prm_visualize (1.0.0)
    ```
-   If you get some error, it is because that you miss some packages. Install them and do the validation again until you can ge t something like above
+   If you get some error, it is because that you miss some packages. Install them and do the validation again until you can get something like above
 4. Install Nest's build-in Pytorch modules
    ```
    nest module install ./Nest-pytorch pytorch

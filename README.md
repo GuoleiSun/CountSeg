@@ -52,6 +52,7 @@ This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM
 1. For Pascal, download dataset by simply running script in CountSeg/dataset folder. 
    ```
    cd path/CountSeg/dataset
+   chmod +x pascal_download.sh
    ./pascal_download.sh
    ```
    Before running the script, do not forget to change the save_path_2007 and save_path_2012 in pascal_download.sh to the path where you want to save pascal 2007 and 2012 dataset.

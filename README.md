@@ -34,9 +34,9 @@ Download this respority and unzip it. Make sure that the folders look like this:
    ```
    Validate the installation by "nest module list --filter prm", you should see something like this.
    ```
-   #Output:
+   ## Output:
    #
-   #3 Nest modules found.
+   # 3 Nest modules found.
    #[0] prm.fc_resnet50 (1.0.0)
    #[1] prm.peak_response_mapping (1.0.0)
    #[2] prm.prm_visualize (1.0.0)
@@ -46,6 +46,7 @@ Download this respority and unzip it. Make sure that the folders look like this:
    ```
    nest module install ./Nest-pytorch pytorch
    ```
+   
 ## Dataset
 1. For Pascal, download dataset by simply running script in CountSeg/dataset folder. 
    ```

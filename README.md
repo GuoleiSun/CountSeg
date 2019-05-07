@@ -14,7 +14,7 @@
 6. Other common packages: numpy, scipy, and so on. Please refer to environment.yml.
 
 ## Installation:
-This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM)
+This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM).
 Download this respority and unzip it. Make sure that the folders look like this:
    ```
   CountSeg

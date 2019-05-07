@@ -46,6 +46,14 @@ Download this respority and unzip it. Make sure that the folders look like this:
    ```
    nest module install ./Nest-pytorch pytorch
    ```
+## Dataset
+1. For Pascal, download dataset by simply running script in CountSeg/dataset folder. 
+   ```
+   cd path/CountSeg/dataset
+   ./pascal_download.sh
+   ```
+   Before you running the script, do not forget to change the save_path_2007 and save_path_2012 in pascal_download.sh to the path where you want to save pascal 2007 and 2012 dataset.
+2. 
 
 ## Test
 To reproduce the results reproted in the paper.
@@ -54,8 +62,8 @@ To reproduce the results reproted in the paper.
    cd path/CountSeg
    jupyter notebook
    ```
-   Then open eval_counting_pascal07.ipynb and simply run each cell inside it.
-2. COCO 2014 counting. Open jupyter notebook and run eval_counting_coco14.ipynb
+   Then open eval_counting_pascal07.ipynb and simply run each cell inside it. Make sure you change the data path in eval_counting_pascal07.ipynb.
+2. COCO 2014 counting. Open jupyter notebook and run eval_counting_coco14.ipynb. Make sure you change the data path in eval_counting_coco14.ipynb.
 
 ## Training
 1. Pascal 2007 and COCO 2014. 
@@ -63,7 +71,7 @@ To reproduce the results reproted in the paper.
    cd path/CountSeg/experiments
    jupyter notebook
    ```
-   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COCO, respectively. 
+   Then open main-pascal.ipynb or main-coco.ipynb to do training on Pascal or COCO, respectively. Make sure you change the data path in config_counting_pascal07.yml and config_counting_coco14.yml.
    
 ## Citation 
 If you find the code useful for your research, please cite:

@@ -52,8 +52,8 @@ Download this respority and unzip it. Make sure that the folders look like this:
    cd path/CountSeg/dataset
    ./pascal_download.sh
    ```
-   Before you running the script, do not forget to change the save_path_2007 and save_path_2012 in pascal_download.sh to the path where you want to save pascal 2007 and 2012 dataset.
-2. 
+   Before running the script, do not forget to change the save_path_2007 and save_path_2012 in pascal_download.sh to the path where you want to save pascal 2007 and 2012 dataset.
+2. For COCO dataset, please go to [COCO](http://cocodataset.org/#download)
 
 ## Test
 To reproduce the results reproted in the paper.

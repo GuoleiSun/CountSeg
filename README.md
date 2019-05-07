@@ -15,21 +15,21 @@
 
 ## Installation:
 This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM).
-Download this respority and unzip it. Make sure that the folders look like this:
-   ```
+1. Download this respority and unzip it. Make sure that the folders look like this:
+```
   CountSeg
   ├── Nest-pytorch
       ├── ...
   ├── PRM-pytorch
       ├── ...
   ├── ...
-  ```
-1. Go inside to CountSeg folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
-2. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
+```
+2. Go inside to CountSeg folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
+3. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
    ```
    pip install git+https://github.com/ZhouYanzhao/Nest.git
    ```
-3. Install PRM via Nest's CLI tool
+4. Install PRM via Nest's CLI tool
    ```
    nest module install ./PRM-pytorch prm
    ```

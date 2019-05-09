@@ -1,0 +1,72 @@
+_name: network_trainer
+data_loaders:
+  _name: fetch_data
+  dataset: 
+    _name: pascal_voc_classification
+    data_dir: /raid/xiaoke/pascal_2007/VOCdevkit   ## pascal dataset path, change to your local path
+    year: 2007
+  batch_size: 16                     ## batch size for training
+  num_workers: 4
+  dataloader_flag: counting    ##control how to load data
+  transform:
+    _name: image_transform
+    image_size: [448, 448]
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+  train_augmentation:
+    horizontal_flip: 0.5
+  test_batch_size: 1          ## only support test batch of 1
+  train_splits:
+    - train
+  test_splits:
+    - val
+model:
+  _name: peak_response_mapping
+  backbone:
+    _name: fc_resnet50
+    channels: 60
+  win_size: 3
+  sub_pixel_locating_factor: 1        
+  enable_peak_stimulation: true
+  filter_type: 'median'
+  peak_stimulation: 'addedmodule5'
+criterion1:
+  _name: class_reg_loss98_6       ## loss used in the first stage of the algorithm
+criterion2:
+  _name: class_reg_loss96_7_2       ## loss used in the second stage of the algorithm
+optimizer:
+  _name: sgd_optimizer
+  lr: 0.01       
+  momentum: 0.9      
+  weight_decay: 1.0e-4      
+parameter:
+  _name: finetune
+  base_lr: 0.01
+  groups:
+    'features': 0.01
+meters:
+  loss:
+    _name: loss_meter
+max_epoch: 300                   ## max number of epochs for training
+device: cuda
+epoch_stage1: 20                      ## number of epochs for the first stage, after that, the training will go to second stage
+train_method: joint_train                ## joint training of the first stage and second stage
+path_history: ./pascal07_counting        ## path for saving checkpoints and training history
+hooks:
+  on_start:
+    -
+      _name: print_state
+      formats:
+        - '@CONFIG'
+        - 'Model: {model}'
+      join_str: '\n'
+  on_end_epoch: 
+    - 
+      _name: print_state
+      formats:
+        - 'epoch: {epoch_idx}'
+        - 'classification_loss: {metrics[train_loss]:.4f}'
+  save_checkpoints: 
+    -
+      _name: checkpoint
+      save_step: -1     ## save checkpoint step, negative step means not saving

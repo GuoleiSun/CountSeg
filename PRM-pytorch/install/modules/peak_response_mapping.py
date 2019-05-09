@@ -8,57 +8,20 @@ import torch.nn.functional as F
 import numpy as np
 from scipy.misc import imresize
 from pyinn.ncrelu import ncrelu
-from ..functions import pr_conv2d, peak_stimulation_ori, peak_stimulation_rel, peak_stimulation_rel2, peak_stimulation_rel3, peak_stimulation_rel3_norelu, peak_stimulation_ncrelu, peak_stimulation_class_reg,peak_stimulation_sort_boost
-from ..functions import peak_stimulation_ori_gt,peak_stimulation_ori_gt_selected_flow_graph
+from ..functions import pr_conv2d, peak_stimulation_ori
+from ..functions import peak_stimulation_ori_gt
 
 class Addedmodule(torch.nn.Module):
     def __init__(self,dimension):
         super(Addedmodule, self).__init__()
-        # print(int(dimension/2))
         self.branch1=nn.Sequential(nn.BatchNorm2d(int(dimension/2)),nn.ReLU(inplace=True),nn.Conv2d(int(dimension/2), int(dimension/3), kernel_size=1, bias=True))
-
         self.branch2=nn.Sequential(nn.BatchNorm2d(int(dimension/2)),nn.ReLU(inplace=True),nn.Conv2d(int(dimension/2), int(dimension/3), kernel_size=1, bias=True))
-        print("Sheila")
 
     def forward(self, x):
-        #print(x.size())
         y = x.chunk(2, 1)
         y0=self.branch1(y[0].contiguous())
         y1=self.branch2(y[1].contiguous())
-        #y0=self.branch1(y[0])
-        #y1=self.branch2(y[1])
         return y0,y1
-
-class Addedmodule2(torch.nn.Module):
-    def __init__(self):
-        super(Addedmodule2, self).__init__()
-
-        #self.branch1=nn.Sequential(nn.BatchNorm2d(30),nn.ReLU(inplace=True),nn.Conv2d(30, 20, kernel_size=1, bias=True))
-
-        #self.branch2=nn.Sequential(nn.BatchNorm2d(30),nn.ReLU(inplace=True),nn.Conv2d(30, 20, kernel_size=1, bias=True))
-        self.branch1=nn.Sigmoid()
-        print("Sheila2")
-
-    def forward(self, x):
-        #print(x.size())
-        y = self.branch1(x)
-        #y0=self.branch1(y[0])
-        #y1=self.branch2(y[1])
-        return y
-
-class Addedmodule3(torch.nn.Module):
-    def __init__(self,dimension):
-        super(Addedmodule3, self).__init__()
-        # self.branch1=nn.Sequential(nn.BatchNorm2d(20),nn.ReLU(inplace=True),nn.Conv2d(20, 20, kernel_size=1, bias=True),
-        #     nn.BatchNorm2d(20),nn.Conv2d(20, 20, kernel_size=1, bias=True),nn.ReLU(inplace=True))
-        # self.branch1=nn.Sequential(nn.BatchNorm2d(20),nn.ReLU(inplace=True),nn.Conv2d(20, 20, kernel_size=1, bias=True))
-        self.branch1=nn.Sequential(nn.BatchNorm2d(int(dimension/2)),nn.ReLU(inplace=True),nn.Conv2d(int(dimension/2), int(dimension/3), kernel_size=1, bias=True))
-        self.branch2=nn.Sequential(nn.BatchNorm2d(int(dimension/2)),nn.ReLU(inplace=True),nn.Conv2d(int(dimension/2), int(dimension/3), kernel_size=1, bias=True))
-        print("Sheila3")
-
-    def forward(self, x):
-        y = self.branch1(x)
-        return y
 
 class Jointable(nn.Module):
     def __init__(self):
@@ -71,36 +34,23 @@ class Jointable(nn.Module):
 class PeakResponseMapping(nn.Sequential):
 
     def __init__(self, *args, **kargs):
-        if kargs.get('peak_stimulation', 'rel')=='addedmodule' or kargs.get('peak_stimulation', 'rel')=='addedmodule2' or kargs.get('peak_stimulation', 'rel')=='addedmodule3'  or kargs.get('peak_stimulation', 'rel')=='addedmodule4'  or kargs.get('peak_stimulation', 'rel')=='addedmodule5':
+        if kargs.get('peak_stimulation', 'rel')=='addedmodule5':
             super(PeakResponseMapping, self).__init__()
             self.backbond=args[0].cuda()
             self.dimen_backbond=int(self.backbond.classifier[0].out_channels)
         else:
             super(PeakResponseMapping, self).__init__(*args)
-        #super(PeakResponseMapping, self).__init__()
-        #self.backbond=args[0].cuda()
-        #super(PeakResponseMapping, self.backbond).__init__(*args)
         self.inferencing = False
         # use global average pooling to aggregate responses if peak stimulation is disabled
         self.enable_peak_stimulation = kargs.get('enable_peak_stimulation', True)
         # return only the class response maps in inference mode if peak backpropagation is disabled
         self.enable_peak_backprop = kargs.get('enable_peak_backprop', True)
         self.peak_stimulation = kargs.get('peak_stimulation', 'rel')
-        #self.ncrelu=kargs.get('ncrelu',False)
         # window size for peak finding
         self.win_size = kargs.get('win_size', 3)
         # sub-pixel peak finding
         self.sub_pixel_locating_factor = kargs.get('sub_pixel_locating_factor', 1)
-        if self.peak_stimulation == 'addedmodule' or self.peak_stimulation == 'addedmodule2':
-            self.addedmodule=Addedmodule(self.dimen_backbond)
-            self.jointable=Jointable()
-        elif self.peak_stimulation == 'addedmodule3':
-            self.addedmodule=Addedmodule2()
-            self.jointable=Jointable()
-        elif self.peak_stimulation == 'addedmodule4':
-            self.addedmodule=Addedmodule3(self.dimen_backbond)
-            self.jointable=Jointable()
-        elif self.peak_stimulation == 'addedmodule5':
+        if self.peak_stimulation == 'addedmodule5':
             self.addedmodule=Addedmodule(self.dimen_backbond)
             self.jointable=Jointable()
         # peak filtering
@@ -174,72 +124,6 @@ class PeakResponseMapping(nn.Sequential):
                     return None
             instance_list = list(filter(iou_filter, instance_list))
         return selected_instances
-
-    def instance_nms2(self, instance_list,count, threshold=0.3, merge_peak_response=True):
-        count_ori=count.copy()
-        selected_instances = []
-        deleted_instances=[]
-        # print("one image")
-        while len(instance_list) > 0:
-            instance = instance_list.pop(0)
-            # if count[instance[1]]>0:
-            selected_instances.append(instance)
-            count[instance[1]]-=1
-            src_mask = instance[2].astype(bool)
-            src_peak_response = instance[3]
-            def iou_filter(x):
-                dst_mask = x[2].astype(bool)
-                # IoU
-                intersection = np.logical_and(src_mask, dst_mask).sum()
-                union = np.logical_or(src_mask, dst_mask).sum()
-                iou = intersection / (union + 1e-10)
-                if iou < threshold:
-                    return x
-                else:
-                    deleted_instances.append(x)
-                    if merge_peak_response:
-                        nonlocal src_peak_response
-                        src_peak_response += x[3]
-                    return None
-            instance_list = list(filter(iou_filter, instance_list))
-            # else:
-            # 	print("delete")
-
-        return self.refine_selected_instances(selected_instances, deleted_instances, count_ori)
-
-    def instance_nms3(self, instance_list,count, threshold=0.3, merge_peak_response=True):
-        count_ori=count.copy()
-        selected_instances = []
-        deleted_instances=[]
-        # print("one image")
-        while len(instance_list) > 0:
-            instance = instance_list.pop(0)
-            # if count[instance[1]]>0:
-            selected_instances.append(instance)
-            count[instance[1]]-=1
-            src_mask = instance[2].astype(bool)
-            src_peak_response = instance[3]
-            def iou_filter(x):
-                dst_mask = x[2].astype(bool)
-                # IoU
-                intersection = np.logical_and(src_mask, dst_mask).sum()
-                union = np.logical_or(src_mask, dst_mask).sum()
-                iou = intersection / (union + 1e-10)
-                if iou < 0.3:
-                    return x
-                elif iou < 0.65:
-                	deleted_instances.append(x)
-                else:
-                    # deleted_instances.append(x)
-                    if merge_peak_response:
-                        nonlocal src_peak_response
-                        src_peak_response += x[3]
-                    return None
-            instance_list = list(filter(iou_filter, instance_list))
-            # else:
-            # 	print("delete")
-        selected_instances1=selected_instances.copy()
-        return selected_instances1,self.refine_selected_instances(selected_instances, deleted_instances, count_ori)
 
     def refine_selected_instances(self, selected_instances, deleted_instances, count):
         count_cur=np.zeros((len(count),))
@@ -357,119 +241,6 @@ class PeakResponseMapping(nn.Sequential):
         if nms_threshold is not None:
             instance_list = self.instance_nms(sorted(instance_list, key=lambda x: x[0], reverse=True), nms_threshold, merge_peak_response)
         return [dict(score=v[0], category=v[1], mask=v[2], prm=v[3]) for v in instance_list]
-    
-
-    # def instance_seg2(self,aggregation,class_response_maps,class_response_maps1, peak_list, peak_response_maps, retrieval_cfg):        
-    #     # cast tensors to numpy array
-    #     # aggregation=aggregation.cpu().detach().numpy()
-    #     # count_one = F.adaptive_avg_pool2d(class_response_maps1, 1).squeeze(2).squeeze(2).detach().cpu().numpy()[0]
-    #     # aggregation[aggregation<0]=0
-    #     # aggregation=aggregation[0]
-    #     # aggregation[aggregation>0]=1
-    #     # count=np.round(aggregation*count_one)
-    #     # print(count)
-    #     class_response_maps = class_response_maps.squeeze().cpu().numpy()
-    #     class_response_maps1 = class_response_maps1.squeeze().cpu().numpy()
-    #     class_response_maps1=class_response_maps1/196.0
-    #     peak_list = peak_list.cpu().numpy()
-    #     peak_response_maps = peak_response_maps.cpu().numpy()
-
-    #     img_height, img_width = peak_response_maps.shape[1], peak_response_maps.shape[2]
-        
-    #     # image size
-    #     img_area = img_height * img_width
-
-    #     # segment proposals off-the-shelf
-    #     proposals = retrieval_cfg['proposals']
-
-    #     # proposal contour width
-    #     contour_width = retrieval_cfg.get('contour_width', 5)
-
-    #     # limit range of proposal size
-    #     proposal_size_limit = retrieval_cfg.get('proposal_size_limit', (0.00002, 0.85))
-
-    #     # selected number of proposals
-    #     proposal_count = retrieval_cfg.get('proposal_count', 100)
-
-    #     # nms threshold
-    #     nms_threshold = retrieval_cfg.get('nms_threshold', 0.3)
-        
-    #     # merge peak response during nms
-    #     merge_peak_response = retrieval_cfg.get('merge_peak_response', True)
-
-    #     # metric free parameters
-    #     param = retrieval_cfg.get('param', None)
-
-    #     # process each peak
-    #     instance_list = []
-    #     # density_factor=1.0
-    #     # print(len(peak_response_maps))
-    #     proposals_reshape=[]
-    #     for i in range(proposal_count):
-    #     	proposals_reshape.append(imresize(proposals[i].astype(int), class_response_maps1[0].shape, interp='nearest'))
-
-    #     for i in range(len(peak_response_maps)):
-    #         class_idx = peak_list[i, 1]
-
-    #         # extract hyper-params
-    #         if isinstance(param, tuple):
-    #             # shared param
-    #             bg_threshold_factor, penalty_factor, balance_factor, density_factor = param
-    #         elif isinstance(param, list):
-    #             # independent params between classes
-    #             bg_threshold_factor, penalty_factor, balance_factor, density_factor = param[class_idx]
-    #         else:
-    #             raise TypeError('Invalid hyper-params "%s".' % param)
-            
-    #         class_response = imresize(class_response_maps[class_idx], (img_height, img_width), interp='bicubic')
-    #         bg_response = (class_response < bg_threshold_factor * class_response.mean()).astype(np.float32)
-    #         peak_response_map = peak_response_maps[i]
-
-    #         # select proposal
-    #         max_val = -np.inf
-    #         instance_mask = None
-
-    #         for j in range(min(proposal_count, len(proposals))):
-    #             raw_mask = imresize(proposals[j].astype(int), peak_response_map.shape, interp='nearest')
-    #             # raw_mask2 = imresize(proposals[j].astype(int), class_response_maps1[class_idx].shape, interp='nearest')
-    #             raw_mask2 = proposals_reshape[j]
-    #             # get contour of the proposal
-    #             contour_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_GRADIENT, np.ones((contour_width, contour_width), np.uint8)).astype(bool)
-    #             mask = raw_mask.astype(bool)
-    #             mask2 = raw_mask2.astype(bool)
-    #             # mask2 = (raw_mask2>0.5)
-    #             # metric
-    #             mask_area = mask.sum()
-    #             if (mask_area >= proposal_size_limit[1] * img_area) or \
-    #                 (mask_area < proposal_size_limit[0] * img_area):
-    #                 continue
-    #             else:
-    #                 val = balance_factor * peak_response_map[mask].sum() + \
-    #                     peak_response_map[contour_mask].sum() - \
-    #                     penalty_factor * bg_response[mask].sum()-\
-    #                     density_factor * np.absolute(1-class_response_maps1[class_idx][mask2].sum())
-    #                 # val=1/(0.01+np.absolute(1-class_response_maps1[class_idx][mask2].sum()))
-    #                 if val > max_val:
-    #                     # print(i,balance_factor * peak_response_map[mask].sum(),peak_response_map[contour_mask].sum(),penalty_factor * bg_response[mask].sum(),
-    #                     #     density_factor * np.absolute(1-class_response_maps1[class_idx][mask2].sum()))                        
-    #                     max_val = val
-    #                     instance_mask = mask
-            
-    #         if instance_mask is not None:
-    #             instance_list.append((max_val, class_idx, instance_mask, peak_response_map))
-        
-    #     if instance_list is None:
-    #         print("instance_list is none")
-    #     if instance_list is not None:      
-    #         instance_list = sorted(instance_list, key=lambda x: x[0], reverse=True)
-    #         if nms_threshold is not None:
-    #             instance_list = self.instance_nms(sorted(instance_list, key=lambda x: x[0], reverse=True), nms_threshold, merge_peak_response)
-    #             # instance_list0,instance_list1 = self.instance_nms3(sorted(instance_list, key=lambda x: x[0], reverse=True), count, nms_threshold, merge_peak_response)
-    #         # return [dict(score=v[0],category=v[1], mask=v[2], prm=v[3]) for v in instance_list0],[dict(score=v[0],category=v[1], mask=v[2], prm=v[3]) for v in instance_list1], class_response_maps1
-    #         return [dict(score=v[0],category=v[1], mask=v[2], prm=v[3]) for v in instance_list], class_response_maps1
-    #     else:
-    #         return None, class_response_maps1
-    
 
     def instance_seg2(self, class_response_maps,class_response_maps1, peak_list, peak_response_maps, retrieval_cfg):        
         # cast tensors to numpy array
@@ -579,7 +350,7 @@ class PeakResponseMapping(nn.Sequential):
         else:
             return None, class_response_maps1
     
-    def forward(self, input, target, class_threshold=0.5, peak_threshold=3, retrieval_cfg=None):       ## changed peak_threshold from 30 to 3, and class threshold from 0 to 0.5
+    def forward(self, input, target, class_threshold=0.5, peak_threshold=3, retrieval_cfg=None):  
         assert input.dim() == 4, 'PeakResponseMapping layer only supports batch mode.'
         if self.inferencing:
             input.requires_grad_()
@@ -587,7 +358,7 @@ class PeakResponseMapping(nn.Sequential):
         # classification network forwarding
         #class_response_maps = super(PeakResponseMapping, self).forward(input)
         #print(self.backbond)
-        if self.peak_stimulation=='addedmodule' or self.peak_stimulation=='addedmodule2' or self.peak_stimulation=='addedmodule3' or self.peak_stimulation=='addedmodule4' or self.peak_stimulation=='addedmodule5':
+        if self.peak_stimulation=='addedmodule5':
             class_response_maps = self.backbond.forward(input)
         else:
             class_response_maps = super(PeakResponseMapping, self).forward(input)
@@ -599,77 +370,21 @@ class PeakResponseMapping(nn.Sequential):
             if self.sub_pixel_locating_factor > 1:
                 class_response_maps = F.upsample(class_response_maps, scale_factor=self.sub_pixel_locating_factor, mode='bilinear', align_corners=True)
             # aggregate responses from informative receptive fields estimated via class peak responses
-            if self.peak_stimulation == 'addedmodule':
-                #print("class_response_mapsddd size",class_response_maps.size())
-                class_response_maps0,class_response_maps1=self.addedmodule(class_response_maps)
-                #print("It should come here",class_response_maps.size(),class_response_maps0.size(),class_response_maps1.size())
-                peak_list0, aggregation0 = peak_stimulation_class_reg(class_response_maps0, win_size=self.win_size, peak_filter=self.peak_filter)
-                peak_list1, aggregation1 = peak_stimulation_ori(class_response_maps1, win_size=self.win_size, peak_filter=self.peak_filter)
-                aggregation=self.jointable([aggregation0,aggregation1])
-            elif self.peak_stimulation == 'addedmodule2':
-                #print("class_response_mapsddd size",class_response_maps.size())
-                class_response_maps0,class_response_maps1=self.addedmodule(class_response_maps)
-                #print("It should come here",class_response_maps.size(),class_response_maps0.size(),class_response_maps1.size())
-                peak_list0, aggregation0 = peak_stimulation_class_reg(class_response_maps0, win_size=self.win_size, peak_filter=self.peak_filter)
-                #peak_list1, aggregation1 = peak_stimulation_ori(class_response_maps1, win_size=self.win_size, peak_filter=self.peak_filter)
-                peak_list1, aggregation1 = None, F.adaptive_avg_pool2d(class_response_maps1, 1).squeeze(2).squeeze(2)
-                aggregation=self.jointable([aggregation0,aggregation1])
-            elif self.peak_stimulation == 'addedmodule3':
-                class_response_maps1=self.addedmodule(class_response_maps)
-                peak_list0, aggregation0 = peak_stimulation_ori(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-                peak_list1, aggregation1,aggregation2 = peak_stimulation_sort_boost(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #peak_list1, aggregation1 = peak_stimulation_ori(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #aggregation=self.jointable([aggregation0,aggregation1])
-                aggregation=self.jointable([aggregation0,aggregation1,aggregation2])
-            elif self.peak_stimulation == 'addedmodule4':
-                class_response_maps1=self.addedmodule(class_response_maps)
-                peak_list0, aggregation0, peaks = peak_stimulation_ori_gt(class_response_maps, target,win_size=self.win_size, peak_filter=self.peak_filter)
-                # peak_list0, aggregation0 = peak_stimulation_ori(class_response_maps, target,win_size=self.win_size, peak_filter=self.peak_filter)
-                # peaks=1
-                # peak_list1, aggregation1,aggregation2 = peak_stimulation_sort_boost(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #peak_list1, aggregation1 = peak_stimulation_ori(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #aggregation=self.jointable([aggregation0,aggregation1])
-                #aggregation=self.jointable([aggregation0,aggregation1,aggregation2])
-            elif self.peak_stimulation == 'addedmodule5':
+            if self.peak_stimulation == 'addedmodule5':
                 class_response_maps0,class_response_maps1=self.addedmodule(class_response_maps)
 
                 ## for selecting images of flow-graph
                 # input_ori,input2, aggregation0, peaks = peak_stimulation_ori_gt_selected_flow_graph(class_response_maps0, target,win_size=self.win_size, peak_filter=self.peak_filter)
                 ##
                 if self.training == True:
-                	peak_list0, aggregation0, peaks = peak_stimulation_ori_gt(class_response_maps0, target,win_size=self.win_size, peak_filter=self.peak_filter)
+                    peak_list0, aggregation0, peaks = peak_stimulation_ori_gt(class_response_maps0, target,win_size=self.win_size, peak_filter=self.peak_filter)
                 else:
-                	# print('eval')
-                	peak_list0, aggregation0 = peak_stimulation_ori(class_response_maps0, target,win_size=self.win_size, peak_filter=self.peak_filter)
-                	peaks=torch.tensor([1]).cuda()
-                # peak_list1, aggregation1,aggregation2 = peak_stimulation_sort_boost(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #peak_list1, aggregation1 = peak_stimulation_ori(class_response_maps1, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                #aggregation=self.jointable([aggregation0,aggregation1])
-                #aggregation=self.jointable([aggregation0,aggregation1,aggregation2])
-            elif self.peak_stimulation == 'class_reg':
-                peak_list, aggregation = peak_stimulation_class_reg(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'ncrelu':
-                class_response_maps=ncrelu(class_response_maps)
-                peak_list, aggregation = peak_stimulation_ncrelu(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'rel':
-                peak_list, aggregation = peak_stimulation_rel(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'rel2':
-                peak_list, aggregation = peak_stimulation_rel2(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'rel3':
-                peak_list, aggregation = peak_stimulation_rel3(class_response_maps, target, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'rel3_norelu':
-                    peak_list, aggregation = peak_stimulation_rel3_norelu(class_response_maps, target, win_size=self.win_size, peak_filter=self.peak_filter)
-            elif self.peak_stimulation == 'ori':
-                peak_list, aggregation = peak_stimulation_ori(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
+                    # print('eval')
+                    peak_list0, aggregation0 = peak_stimulation_ori(class_response_maps0, target,win_size=self.win_size, peak_filter=self.peak_filter)
+                    peaks=torch.tensor([1]).cuda()
         else:
             # aggregate responses from all receptive fields
-            if self.peak_stimulation == 'addedmodule':
-                class_response_maps0,class_response_maps1=self.addedmodule(class_response_maps)
-                peak_list0, aggregation0 = None, F.adaptive_avg_pool2d(class_response_maps0, 1).squeeze(2).squeeze(2)
-                peak_list1, aggregation1 = None, F.adaptive_avg_pool2d(class_response_maps1, 1).squeeze(2).squeeze(2)
-                aggregation=self.jointable([aggregation0,aggregation1])
-            else:
-                peak_list, aggregation = None, F.adaptive_avg_pool2d(class_response_maps, 1).squeeze(2).squeeze(2)
+            peak_list, aggregation = None, F.adaptive_avg_pool2d(class_response_maps, 1).squeeze(2).squeeze(2)
 
         if self.inferencing:
             if not self.enable_peak_backprop:
@@ -729,18 +444,7 @@ class PeakResponseMapping(nn.Sequential):
 
             assert class_response_maps.size(0) == 1, 'Currently inference mode (with peak backpropagation) only supports one image at a time.'
             if peak_list is None:
-                if self.peak_stimulation == 'ncrelu':
-                    class_response_maps=ncrelu(class_response_maps)
-                    peak_list, aggregation = peak_stimulation_ncrelu(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-                elif self.peak_stimulation == 'rel':
-                    peak_list = peak_stimulation_rel(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
-                elif self.peak_stimulation == 'rel2':
-                    peak_list = peak_stimulation_rel2(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
-                elif self.peak_stimulation == 'rel3':
-                    peak_list, aggregation = peak_stimulation_rel3(class_response_maps, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                elif self.peak_stimulation == 'rel3_norelu':
-                    peak_list, aggregation = peak_stimulation_rel3_norelu(class_response_maps, target, win_size=self.win_size, peak_filter=self.peak_filter)
-                elif self.peak_stimulation =='ori':
+                if self.peak_stimulation =='ori':
                     peak_list = peak_stimulation_ori(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
                 else:
                     print("peak list is none")
@@ -780,90 +484,15 @@ class PeakResponseMapping(nn.Sequential):
                 return None
         else:
             # classification confidence scores
-            if self.peak_stimulation=='addedmodule4' or self.peak_stimulation=='addedmodule5':
+            if self.peak_stimulation=='addedmodule5':
                 # return aggregation0,class_response_maps0,class_response_maps1,peaks
                 return aggregation0,class_response_maps1,peaks
                 # return aggregation0,class_response_maps1,peaks, input_ori,input2   ## for selecting images for flow_graph
                 # return aggregation0, class_response_maps1, class_response_maps0
-            elif self.peak_stimulation =='addedmodule2' or self.peak_stimulation =='ori':
+            elif self.peak_stimulation =='ori':
                 return aggregation,class_response_maps,torch.tensor([1]).cuda()
             else:
                 return aggregation
-
-    # def forward(self, input, class_threshold=0.5, peak_threshold=3, retrieval_cfg=None):       ## changed peak_threshold from 30 to 3, and class threshold from 0 to 0.5
-    #     assert input.dim() == 4, 'PeakResponseMapping layer only supports batch mode.'
-    #     if self.inferencing:
-    #         input.requires_grad_()
-
-    #     # classification network forwarding
-    #     class_response_maps = super(PeakResponseMapping, self).forward(input)
-    #     # print(class_response_maps.size())
-    #     if self.enable_peak_stimulation:
-    #         # sub-pixel peak finding
-    #         if self.sub_pixel_locating_factor > 1:
-    #             class_response_maps = F.upsample(class_response_maps, scale_factor=self.sub_pixel_locating_factor, mode='bilinear', align_corners=True)
-    #         # aggregate responses from informative receptive fields estimated via class peak responses
-    #         if self.peak_stimulation == 'rel':
-    #             peak_list, aggregation = peak_stimulation_rel(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-    #         elif self.peak_stimulation == 'rel2':
-    #             peak_list, aggregation = peak_stimulation_rel2(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-    #         elif self.peak_stimulation == 'ori':
-    #             peak_list, aggregation = peak_stimulation_ori(class_response_maps, win_size=self.win_size, peak_filter=self.peak_filter)
-    #     else:
-    #         # aggregate responses from all receptive fields
-    #         peak_list, aggregation = None, F.relu(F.adaptive_avg_pool2d(class_response_maps, 1)).squeeze(2).squeeze(2)
-
-    #     if self.inferencing:
-    #         if not self.enable_peak_backprop:
-    #             # extract only class-aware visual cues
-    #             return aggregation, class_response_maps
-            
-    #         # extract instance-aware visual cues, i.e., peak response maps
-    #         assert class_response_maps.size(0) == 1, 'Currently inference mode (with peak backpropagation) only supports one image at a time.'
-    #         if peak_list is None:
-    #             if self.peak_stimulation == 'rel':
-    #                 peak_list = peak_stimulation_rel(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
-    #             elif self.peak_stimulation == 'rel2':
-    #                 peak_list = peak_stimulation_rel2(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
-    #             elif self.peak_stimulation =='ori':
-    #                 peak_list = peak_stimulation_ori(class_response_maps, return_aggregation=False, win_size=self.win_size, peak_filter=self.peak_filter)
-
-    #         peak_response_maps = []
-    #         valid_peak_list = []
-    #         # peak backpropagation
-    #         grad_output = class_response_maps.new_empty(class_response_maps.size())
-    #         for idx in range(peak_list.size(0)):
-    #             if aggregation[peak_list[idx, 0], peak_list[idx, 1]] >= class_threshold:
-    #                 peak_val = class_response_maps[peak_list[idx, 0], peak_list[idx, 1], peak_list[idx, 2], peak_list[idx, 3]]
-    #                 if peak_val > peak_threshold:
-    #                     grad_output.zero_()
-    #                     # starting from the peak
-    #                     grad_output[peak_list[idx, 0], peak_list[idx, 1], peak_list[idx, 2], peak_list[idx, 3]] = 1
-    #                     if input.grad is not None:
-    #                         input.grad.zero_()
-    #                     class_response_maps.backward(grad_output, retain_graph=True)
-    #                     prm = input.grad.detach().sum(1).clone().clamp(min=0)
-    #                     peak_response_maps.append(prm / prm.sum())
-    #                     valid_peak_list.append(peak_list[idx, :])
-            
-    #         # return results
-    #         class_response_maps = class_response_maps.detach()
-    #         aggregation = aggregation.detach()
-
-    #         if len(peak_response_maps) > 0:
-    #             valid_peak_list = torch.stack(valid_peak_list)
-    #             peak_response_maps = torch.cat(peak_response_maps, 0)
-    #             if retrieval_cfg is None:
-    #                 # classification confidence scores, class-aware and instance-aware visual cues
-    #                 return aggregation, class_response_maps, valid_peak_list, peak_response_maps
-    #             else:
-    #                 # instance segmentation using build-in proposal retriever
-    #                 return self.instance_seg(class_response_maps, valid_peak_list, peak_response_maps, retrieval_cfg)
-    #         else:
-    #             return None
-    #     else:
-    #         # classification confidence scores
-    #         return aggregation
 
     def train(self, mode=True):
         super(PeakResponseMapping, self).train(mode)
@@ -877,9 +506,3 @@ class PeakResponseMapping(nn.Sequential):
         self._patch()
         self.inferencing = True
         return self
-
-    # def inference(self):
-    #     super(PeakResponseMapping, self).train(False)
-    #     self._patch()
-    #     self.inferencing_counting = True
-    #     return self

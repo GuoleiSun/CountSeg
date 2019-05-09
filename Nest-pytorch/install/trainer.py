@@ -24,10 +24,8 @@ class TqdmHandler(logging.StreamHandler):
         tqdm.write(msg)
 
 def adjust_learning_rate(optimizer, epoch, ori_lr):
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    #lr = args.lr * (0.5 ** (epoch // 30))
+    """Sets the learning rate to the initial LR decayed by 2 every 50 epochs"""
     for i,param_group in enumerate(optimizer.param_groups):
-        # param_group['lr'] = ori_lr[i]*(0.5 ** (max([0,epoch-50]) // 30))
         param_group['lr'] = ori_lr[i]*(0.5 ** (epoch // 50))
 
 def save_json(fname, data):
@@ -38,7 +36,7 @@ def save_json(fname, data):
 def network_trainer(
     data_loaders: Tuple[List[Tuple[str, data.DataLoader]], List[Tuple[str, data.DataLoader]]],
     model: nn.Module,
-    criterion: Callable[[Tensor, Tensor, Tensor, Tensor], Tensor],
+    criterion1: Callable[[Tensor, Tensor, Tensor, Tensor], Tensor],
     optimizer: Callable[[Iterable], optim.Optimizer],
     criterion2: Optional[Callable[[Tensor, Tensor, Tensor, Tensor], Tensor]] = None,
     parameter: Optional[Callable] = None,
@@ -53,14 +51,14 @@ def network_trainer(
     device: str = 'cuda',
     use_data_parallel: bool = True,
     use_cudnn_benchmark: bool = True,
-    stage1_len: int = 30,
+    epoch_stage1: int = 30,
     random_seed: int = 999) -> Context:
     """Network trainer.
     data_loaders: [train set, optional[validation set]]
-    criterion: loss for stage 1
+    criterion1: loss for stage 1
     criterion2: loss for stage 2
-    train_method: sep, train stage 1 and stage 2 seprately; join_train, train stage 1 and stage 2 joinly
-    stage1_len: the number of epoches in the first stage; We use 20 for pascal and 30 for coco
+    train_method: sep, train stage 1 and stage 2 seprately; e2e, train stage 1 and stage 2 joinly, i.e. in an end to end manner
+    epoch_stage1: the number of epoches in the first stage; We use 20 for pascal and 30 for coco
     """
 
     torch.manual_seed(random_seed)
@@ -147,6 +145,9 @@ def network_trainer(
         loss = Tensor(),
         metrics = dict(),
         state_dicts = [],
+        eva_metrics='',
+        save_dir=path_history,
+        is_best = False,
         logger = logger)
 
     # helper func for executing hooks
@@ -158,13 +159,6 @@ def network_trainer(
             else:
                 for hook in hooks.get(hook_type):
                     hook(ctx)                
-
-    # def run_hooks_no_checkpoint(hook_type):
-    #     if isinstance(hooks, dict) and hook_type in hooks:
-    #         for hook in hooks.get(hook_type):
-    #             print(type(hook))
-    #             if hook !=modules.checkpoint:
-    #                 hook(ctx)
 
     # helper func for processing dataset split
     def process(split, data_loader, is_train):
@@ -218,60 +212,8 @@ def network_trainer(
 
         run_hooks('on_end_split')
 
-   # helper func for processing dataset split
-    def process2(split, data_loader, is_train):
-        ctx.max_batch = len(data_loader)
-        ctx.split = split
-        ctx.is_train = is_train
-
-        run_hooks('on_start_split')
-
-        # set model status
-        if is_train:
-            model.train() 
-            gc.collect()
-        else:
-            model.eval()
-
-        # iterate over batches
-        for batch_idx, (input, target,target1) in enumerate(progress_bar(data_loader, ascii=True, desc=split, unit='batch', leave=False)):
-            if batch_idx < ctx.batch_idx:
-                continue
-
-            # prepare a batch of data
-            ctx.batch_idx = batch_idx
-            if isinstance(input, (list, tuple)):
-                ctx.input = [v.to(device) if torch.is_tensor(v) else v for v in input]
-            elif isinstance(input, dict):
-                ctx.input = {k: v.to(device) if torch.is_tensor(v) else v for k, v in input.items()}
-            else:
-                ctx.input = input.to(device)
-            ctx.target = target.to(device)
-            ctx.target1 = target1.to(device)
-
-            run_hooks('on_start_batch')
-
-            # compute output and loss
-            with torch.set_grad_enabled(is_train):
-                ctx.output, ctx.output2, ctx.output3 = ctx.model(ctx.input,ctx.target)
-                ctx.loss = criterion(ctx.output, ctx.target, ctx.output2, ctx.target1)
-
-            # measure performance
-            if not meters is None:
-                ctx.metrics.update({split + '_' + k: v(ctx) for k, v in meters.items() if v is not None})
-
-            # update model parameters
-            if is_train:
-                optimizer.zero_grad()
-                ctx.loss.backward()
-                optimizer.step()
-
-            run_hooks('on_end_batch')
-            ctx.batch_idx = 0
-
-        run_hooks('on_end_split')
-
     def mrmse(non_zero,count_pred, count_gt):
+        ## compute mrmse
         nzero_mask=torch.ones(count_gt.size())
         if non_zero==1:
             nzero_mask=torch.zeros(count_gt.size())
@@ -287,6 +229,7 @@ def network_trainer(
         return mrmse
 
     def rel_mrmse(non_zero,count_pred, count_gt):
+        ## compute relative mrmse
         nzero_mask=torch.ones(count_gt.size())
         if non_zero==1:
             nzero_mask=torch.zeros(count_gt.size())
@@ -305,7 +248,7 @@ def network_trainer(
 
 
    # training two stages together
-    def process3(split, data_loader,is_train,criterion):
+    def process2(split, data_loader,is_train,criterion):
         ctx.max_batch = len(data_loader)
         ctx.split = split
         ctx.is_train = is_train
@@ -370,6 +313,7 @@ def network_trainer(
         if not is_train:
             counting_pred=np.array(counting_pred)
             counting_gt=np.array(counting_gt)
+            # print(counting_pred.shape,counting_gt.shape)
             return [mrmse(1,torch.from_numpy(counting_pred).float(), torch.from_numpy(counting_gt).float()),
             rel_mrmse(1,torch.from_numpy(counting_pred).float(), torch.from_numpy(counting_gt).float()),
             mrmse(0,torch.from_numpy(counting_pred).float(), torch.from_numpy(counting_gt).float()),
@@ -387,22 +331,8 @@ def network_trainer(
     for param_group in optimizer.param_groups:
         ori_lr.append(param_group['lr'])
 
-    # for epoch_idx in progress_bar(range(ctx.epoch_idx, max_epoch), ascii=True, unit='epoch'):
-    #     ctx.epoch_idx = epoch_idx
-    #     run_hooks('on_start_epoch')
-
-    #     # training
-    #     for split, loader in train_loaders:
-    #         process(split, loader, True)
-
-    #     # testing
-    #     if epoch_idx % test_interval == 0:
-    #         for split, loader in test_loaders:
-    #             process(split, loader, False)
-        
-    #     run_hooks('on_end_epoch')
     history={"best_val_epoch":[-1]*4, "best_val_result":[np.inf]*4}
-    eva_metrics_list=['mrmse','rmrmse','mrmse_nz','rmrmse_nz']
+    eva_metrics_list=['mrmse_nz','rmrmse_nz','mrmse','rmrmse']
 
     for epoch_idx in progress_bar(range(ctx.epoch_idx, max_epoch), ascii=True, unit='epoch'):
         ctx.epoch_idx = epoch_idx
@@ -411,58 +341,74 @@ def network_trainer(
         adjust_learning_rate(optimizer, epoch_idx, ori_lr)
         for param_group in optimizer.param_groups:
             print('learning rate:', param_group['lr'])
-        # print(epoch_idx)
+
         if train_method=='sep':
-            # training
-            # print('here1')
             for split, loader in train_loaders:
                 process(split, loader, True)
             # testing
             if epoch_idx % test_interval == 0:
                 for split, loader in test_loaders:
                     process(split, loader, False)
-            run_hooks('on_end_epoch') 
+            run_hooks('on_end_epoch')
+
         elif train_method=='joint_train':
             assert not(criterion2 is None), "criterion2 not provided"
-            if epoch_idx<=stage1_len-1:
-                print('using criterion')
+
+            ## do training: our training are divided into two stages: first stage and second stage
+            if epoch_idx<=epoch_stage1-1:
+                print('stage 1 of the training: using criterion1')
                 for split, loader in train_loaders:
-                    process3(split, loader, True,criterion)
+                    process2(split, loader, True,criterion1)
             else:
-                print('using criterion2')
+                print('stage 2 of the training: using criterion2')
                 for split, loader in train_loaders:
-                    process3(split, loader, True,criterion2)
-                ## do validation
-                if len(test_loaders)==0:
-                    print("no validation during training")
-                else:
-                    print("validation start")
-                    for split, loader in test_loaders:
-                        results=process3(split, loader, False,criterion2)
-                    # print("mrmse: %f, rmrmse: %f, mrmse_nz: %f, rmrmse_nz: %f " %(results[0],results[1],
-                    #     results[2],results[3]))
-            if epoch_idx<stage1_len-1:
-                run_hooks('on_end_epoch_save_latest')
-            elif epoch_idx==stage1_len-1:
-                run_hooks('on_end_epoch')
+                    process2(split, loader, True,criterion2)
+
+            ## do validation
+            if len(test_loaders)==0:
+                print("no validation during training")
             else:
-                if len(test_loaders)==0:
-                    run_hooks('on_end_epoch')
-                else:
-                    run_hooks('on_end_epoch_save_latest')
-                    print("mrmse: %f, rmrmse: %f, mrmse_nz: %f, rmrmse_nz: %f " %(results[0],results[1],
+                print("validation start")
+                for split, loader in test_loaders:
+                    if epoch_idx<=epoch_stage1-1:
+                        results=process2(split, loader, False,criterion1)
+                    else:
+                        results=process2(split, loader, False,criterion2)
+                print("mrmse_nz: %f, rmrmse_nz: %f, mrmse: %f, rmrmse: %f " %(results[0],results[1],
                             results[2],results[3]))
-                    update_flag=0
-                    for i in range(len(results)):
-                        if history['best_val_result'][i]>results[i]:
-                            history['best_val_epoch'][i]=epoch_idx
-                            history['best_val_result'][i]=float(results[i].cpu().numpy())
-                            ctx.eva_metrics=eva_metrics_list[i]
-                            update_flag=1
-                            run_hooks('save_best_model')
-                    save_json(path_history, history)
-        print()
-        print('--------------------------------------------------------',end='\n\n')
+
+                for i in range(len(results)):
+                    if history['best_val_result'][i]>results[i]:
+                        history['best_val_epoch'][i]=epoch_idx
+                        history['best_val_result'][i]=float(results[i].cpu().numpy())
+                        ctx.eva_metrics=eva_metrics_list[i]
+                        ctx.is_best=True
+            run_hooks('on_end_epoch')
+            run_hooks('save_checkpoints')
+            save_json(path_history+'/history.json', history)
+            print()
+            print('--------------------------------------------------------',end='\n\n')
+
+            # if epoch_idx<epoch_stage1-1:
+            #     run_hooks('on_end_epoch_save_latest')
+            # elif epoch_idx==epoch_stage1-1:
+            #     run_hooks('on_end_epoch')
+            # else:
+            #     if len(test_loaders)==0:
+            #         run_hooks('on_end_epoch')
+            #     else:
+            #         run_hooks('on_end_epoch_save_latest')
+            #         print("mrmse: %f, rmrmse: %f, mrmse_nz: %f, rmrmse_nz: %f " %(results[0],results[1],
+            #                 results[2],results[3]))
+            #         update_flag=0
+            #         for i in range(len(results)):
+            #             if history['best_val_result'][i]>results[i]:
+            #                 history['best_val_epoch'][i]=epoch_idx
+            #                 history['best_val_result'][i]=float(results[i].cpu().numpy())
+            #                 ctx.eva_metrics=eva_metrics_list[i]
+            #                 update_flag=1
+            #                 run_hooks('save_best_model')
+            #         save_json(path_history, history)
 
     run_hooks('on_end')
 

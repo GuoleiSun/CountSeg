@@ -1,9 +1,10 @@
 import os
+import sys
+import torch
+
 from collections import OrderedDict
 from typing import Tuple, List, Dict, Union, Callable, Optional
 
-import numpy as np
-import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from PIL import Image
@@ -12,6 +13,14 @@ import xml.etree.ElementTree as ET # changed
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+import matplotlib.pyplot as plt
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+import numpy as np
+import skimage.io as io
+import pylab
+import json
+import pickle
 
 @register
 def image_transform(
@@ -57,7 +66,6 @@ def image_transform(
     
     return transforms.Compose([v for v in t if v is not None])
 
-
 @register
 def fetch_data(
     dataset: Callable[[str], Dataset],
@@ -73,9 +81,10 @@ def fetch_data(
     train_augmentation: dict = {},
     test_augmentation: dict = {},
     batch_size: int = 1,
-    num_classes_used: int = 0,
-    test_batch_size: Optional[int] = None) -> Tuple[List[Tuple[str, DataLoader]], List[Tuple[str, DataLoader]]]:
-    """Return data loader list.
+    dataloader_flag: str = 'counting',
+    test_batch_size: int = 1) -> Tuple[List[Tuple[str, DataLoader]], List[Tuple[str, DataLoader]]]:
+    """
+    currently, only support test_batch_size=1
     """
 
     # fetch training data
@@ -87,7 +96,7 @@ def fetch_data(
                 split = split, 
                 transform = train_transform,
                 target_transform = target_transform,
-                num_classes_used = num_classes_used),
+                dataloader_flag = dataloader_flag),
             batch_size = batch_size,
             num_workers = num_workers,
             pin_memory = pin_memory,
@@ -103,7 +112,7 @@ def fetch_data(
                 split = split, 
                 transform = test_transform,
                 target_transform = target_transform,
-                num_classes_used = num_classes_used),
+                dataloader_flag = dataloader_flag),
             batch_size = batch_size if test_batch_size is None else test_batch_size,
             num_workers = num_workers,
             pin_memory = pin_memory,
@@ -111,25 +120,6 @@ def fetch_data(
             shuffle = test_shuffle)))
 
     return train_loader_list, test_loader_list
-
-
-@register
-def mnist(
-    split: str,
-    data_dir: str,
-    transform: Optional[Callable] = None,
-    target_transform: Optional[Callable] = None,
-    download: bool = True) -> Dataset:
-    """MNIST dataset.
-    """
-
-    if split == 'train':
-        return datasets.MNIST(data_dir, True, transform, target_transform, download)
-    elif split == 'test':
-        return datasets.MNIST(data_dir, False, transform, target_transform, download)
-    else:
-        raise NotImplementedError('Invalid "%s" split for MNIST dataset.' % split)
-
 
 @register
 def pascal_voc_object_categories(query: Optional[Union[int, str]] = None) -> Union[int, str, List[str]]:
@@ -154,11 +144,10 @@ def pascal_voc_object_categories(query: Optional[Union[int, str]] = None) -> Uni
 
 
 class VOC_Classification(Dataset):
-    """Dataset for PASCAL VOC classification.
+    """Dataset for PASCAL VOC.
     """
 
-    def __init__(self, data_dir, dataset, split, classes, num_classes_used, transform=None, target_transform=None):
-        self.poc_path='/media/guolei/DISK1TB'
+    def __init__(self, data_dir, dataset, split, classes, dataloader_flag, transform=None, target_transform=None):
         self.data_dir = data_dir
         self.dataset = dataset
         self.split = split
@@ -169,270 +158,16 @@ class VOC_Classification(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.classes = classes
-        if num_classes_used==3:
-            self.image_labels = self._read_annotations_count3(self.split)
-        elif num_classes_used==22:
-            self.image_labels = self._read_annotations_22(self.split)
-        elif num_classes_used==20:
-            self.image_labels = self._read_annotations_0712(self.split)
-        elif num_classes_used==712:
-            self.image_labels = self._read_annotations_0712_regression(self.split)
-        elif num_classes_used==7:
+        if dataloader_flag=='counting':
+            ## counting training dataloader
             self.image_labels = self._read_annotations_07_regression(self.split)
-        elif num_classes_used==72:
-            self.image_labels = self._read_annotations_07_2_regression(self.split)
-        elif num_classes_used==7122:
-            self.image_labels = self._read_annotations_07122_regression(self.split)
-        elif num_classes_used==7123:
-            ## 07 trainval+12 trainval - 12 seg val
-            self.image_labels = self._read_annotations_07122_rm_val_regression(self.split)
-        elif num_classes_used==123:
-            ## 12 trainval - 12 seg val
-            self.image_labels = self._read_annotations_122_rm_val_regression(self.split)
-        elif num_classes_used==124:
-            ## 12 trainval(11355)+seg train-seg val=10582
+        elif dataloader_flag=='ins_seg':
+            ## instance segmentation training dataloader
             self.image_labels = self._read_annotations_124_plus_segtrain_rm_val_regression(self.split)
-        elif num_classes_used==125:
-            ## 12 training data
-            self.image_labels = self._read_annotations_125_only_train_regression(self.split)
         else:
-            print('num_classes_used not 3, 20, 22')
-        print(len(self.image_labels))
-        # print(self.classes)
-        # print(self.image_labels[16])
-        # dd
-        # all_labels=[]
-        # for i in list(self.image_labels):
-        #     all_labels.append(i[1])
-        # all_labels=np.array(all_labels)
-        # # all_labels[all_labels==-1]=0
-        # all_labels=all_labels==2
-        # sum_all=np.sum(np.sum(all_labels))
-        # print(sum_all)
-        # print(all_labels.shape)
-        # dd
-        
+            print("error, dataloader_flag is neither counting or ins_seg")
 
-    def _read_annotations(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        class_labels[name][class_idx] = int(label)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_0712(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        class_labels[name][class_idx] = int(label)
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        class_labels[name][class_idx] = int(label)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_0712_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            class_labels[name][class_idx] = int(count)
-                        else:
-                            class_labels[name][class_idx] = int(0)
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        class_labels[name][class_idx] = int(label)
-                        if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            class_labels[name][class_idx] = int(count)
-                        else:
-                            class_labels[name][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_07122_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        dim=14
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-                        if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx],dim)
-                            if count!=np.sum(mask_obj):
-                                print(count,np.sum(mask_obj))
-                                import matplotlib.pyplot as plt
-                                plt.imshow(mask_obj)
-                                print(name)
-                                print(mask_obj)
-                                print('error')
-                                dd
-                            class_labels[name][0][class_idx] = int(count)
-                            class_labels[name][1][class_idx] = mask_obj
-                        else:
-                            class_labels[name][0][class_idx] = int(0)
-        if os.path.exists(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-                        # class_labels[name][class_idx] = int(label)
-                        if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx],dim)
-                            if count!=np.sum(mask_obj):
-                                print(count,np.sum(mask_obj))
-                                import matplotlib.pyplot as plt
-                                plt.imshow(mask_obj)
-                                print(name)
-                                print(mask_obj)
-                                print('error')
-                                dd
-                            class_labels[name][0][class_idx] = int(count)
-                            class_labels[name][1][class_idx] = mask_obj
-                        else:
-                            class_labels[name][0][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_07122_rm_val_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        dim=14
-        with open(self.poc_path+'/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/ImageSets/Segmentation/val.txt','r') as f:
-            val_list=[]
-            for ima in f:
-                ima=ima.strip('\n')
-                val_list.append(ima)
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if (name not in val_list) and ('2007_'+name not in val_list):
-                            if name not in class_labels:
-                                class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-                            if int(label)!=-1:
-                                count=self.return_count_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                    self.classes[class_idx])
-                                mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                    self.classes[class_idx],dim)
-                                if count!=np.sum(mask_obj):
-                                    print(count,np.sum(mask_obj))
-                                    import matplotlib.pyplot as plt
-                                    plt.imshow(mask_obj)
-                                    print(name)
-                                    print(mask_obj)
-                                    print('error')
-                                    dd
-                                class_labels[name][0][class_idx] = int(count)
-                                class_labels[name][1][class_idx] = mask_obj
-                            else:
-                                class_labels[name][0][class_idx] = int(0)
-        if os.path.exists(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if (name not in val_list) and ('2007_'+name not in val_list):
-                            if name not in class_labels:
-                                class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-                            # class_labels[name][class_idx] = int(label)
-                            if int(label)!=-1:
-                                count=self.return_count_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                    self.classes[class_idx])
-                                mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                    self.classes[class_idx],dim)
-                                if count!=np.sum(mask_obj):
-                                    print(count,np.sum(mask_obj))
-                                    import matplotlib.pyplot as plt
-                                    plt.imshow(mask_obj)
-                                    print(name)
-                                    print(mask_obj)
-                                    print('error')
-                                    dd
-                                class_labels[name][0][class_idx] = int(count)
-                                class_labels[name][1][class_idx] = mask_obj
-                            else:
-                                class_labels[name][0][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
+        print("number of images for %s: %d" %(split,len(self.image_labels)))
 
     def _read_annotations_124_plus_segtrain_rm_val_regression(self, split):
         class_labels = OrderedDict()
@@ -487,130 +222,6 @@ class VOC_Classification(Dataset):
                             class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype=int)]
                         # class_labels[name][class_idx] = int(label)
                             class_labels[name][0]=self.return_segtrain_gt(num_classes,name)
-                        # if int(label)!=-1:
-                        #     count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                        #         self.classes[class_idx])
-                        #     mask_obj=self.return_mask_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                        #         self.classes[class_idx],dim)
-                        #     if count!=np.sum(mask_obj):
-                        #         print(count,np.sum(mask_obj))
-                        #         import matplotlib.pyplot as plt
-                        #         plt.imshow(mask_obj)
-                        #         print(name)
-                        #         print(mask_obj)
-                        #         print('error')
-                        #         dd
-                        #     class_labels[name][0][class_idx] = int(count)
-                        #     class_labels[name][1][class_idx] = mask_obj
-                        # else:
-                        #     class_labels[name][0][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_125_only_train_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        dim=14
-        split='train'
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        # if (name not in val_list) and ('2007_'+name not in val_list) and (name in val_list2):
-                        if name not in class_labels:
-                            class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype=int)]
-                        if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx],dim)
-                            if count!=np.sum(mask_obj):
-                                print(count,np.sum(mask_obj))
-                                import matplotlib.pyplot as plt
-                                plt.imshow(mask_obj)
-                                print(name)
-                                print(mask_obj)
-                                print('error')
-                                dd
-                            class_labels[name][0][class_idx] = int(count)
-                            class_labels[name][1][class_idx] = mask_obj
-                        else:
-                            class_labels[name][0][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_122_rm_val_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        dim=14
-        with open(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/ImageSets/Segmentation/val.txt','r') as f:
-            val_list=[]
-            for ima in f:
-                ima=ima.strip('\n')
-                val_list.append(ima)
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in val_list:
-                            if name not in class_labels:
-                                class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-                            if int(label)!=-1:
-                                count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                    self.classes[class_idx])
-                                mask_obj=self.return_mask_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                    self.classes[class_idx],dim)
-                                if count!=np.sum(mask_obj):
-                                    print(count,np.sum(mask_obj))
-                                    import matplotlib.pyplot as plt
-                                    plt.imshow(mask_obj)
-                                    print(name)
-                                    print(mask_obj)
-                                    print('error')
-                                    dd
-                                class_labels[name][0][class_idx] = int(count)
-                                class_labels[name][1][class_idx] = mask_obj
-                            else:
-                                class_labels[name][0][class_idx] = int(0)
-        # if os.path.exists(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-        #     for class_idx in range(num_classes):
-        #         filename = os.path.join(
-        #             '/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-        #         with open(filename, 'r') as f:
-        #             for line in f:
-        #                 name, label = line.split()
-        #                 if name not in class_labels and name not in val_list:
-        #                     class_labels[name] = [np.zeros(num_classes),np.zeros((num_classes,dim,dim),dtype='bool')]
-        #                 # class_labels[name][class_idx] = int(label)
-        #                 if int(label)!=-1:
-        #                     count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-        #                         self.classes[class_idx])
-        #                     mask_obj=self.return_mask_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-        #                         self.classes[class_idx],dim)
-        #                     if count!=np.sum(mask_obj):
-        #                         print(count,np.sum(mask_obj))
-        #                         import matplotlib.pyplot as plt
-        #                         plt.imshow(mask_obj)
-        #                         print(name)
-        #                         print(mask_obj)
-        #                         print('error')
-        #                         dd
-        #                     class_labels[name][0][class_idx] = int(count)
-        #                     class_labels[name][1][class_idx] = mask_obj
-        #                 else:
-        #                     class_labels[name][0][class_idx] = int(0)
         else:
             raise NotImplementedError(
                 'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
@@ -620,25 +231,10 @@ class VOC_Classification(Dataset):
     def _read_annotations_07_regression(self, split):
         class_labels = OrderedDict()
         num_classes = len(self.classes)
-        # if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-        #     for class_idx in range(num_classes):
-        #         filename = os.path.join(
-        #             self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-        #         with open(filename, 'r') as f:
-        #             for line in f:
-        #                 name, label = line.split()
-        #                 if name not in class_labels:
-        #                     class_labels[name] = np.zeros(num_classes)
-        #                 if int(label)!=-1:
-        #                     count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-        #                         self.classes[class_idx])
-        #                     class_labels[name][class_idx] = int(count)
-        #                 else:
-        #                     class_labels[name][class_idx] = int(0)
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
+        if os.path.exists(os.path.join(self.data_dir,self.dataset,'ImageSets/Main/', split + '.txt')):
             for class_idx in range(num_classes):
                 filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
+                    self.data_dir,self.dataset,'ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
                 with open(filename, 'r') as f:
                     for line in f:
                         name, label = line.split()
@@ -646,7 +242,7 @@ class VOC_Classification(Dataset):
                             class_labels[name] = np.zeros(num_classes)
                         class_labels[name][class_idx] = int(label)
                         if int(label)!=-1:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
+                            count=self.return_count_obj_rm_diff(os.path.join(self.data_dir,self.dataset,'Annotations',name+'.xml'),
                                 self.classes[class_idx])
                             class_labels[name][class_idx] = int(count)
                         else:
@@ -656,263 +252,6 @@ class VOC_Classification(Dataset):
                 'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
 
         return list(class_labels.items())
-
-    def _read_annotations_07_2_regression(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        # if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-        #     for class_idx in range(num_classes):
-        #         filename = os.path.join(
-        #             self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-        #         with open(filename, 'r') as f:
-        #             for line in f:
-        #                 name, label = line.split()
-        #                 if name not in class_labels:
-        #                     class_labels[name] = np.zeros(num_classes)
-        #                 if int(label)!=-1:
-        #                     count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-        #                         self.classes[class_idx])
-        #                     class_labels[name][class_idx] = int(count)
-        #                 else:
-        #                     class_labels[name][class_idx] = int(0)
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes)
-                        class_labels[name][class_idx] = int(label)
-                        if int(label)!=-1:
-                            count=self.return_count_obj_rm_diff(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            class_labels[name][class_idx] = int(count)
-                        else:
-                            class_labels[name][class_idx] = int(0)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-    # def _read_annotations4(self, split):
-    #     class_labels = OrderedDict()
-    #     num_classes = len(self.classes)
-    #     num_classes2=2 ## changed
-    #     if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-    #         for class_idx in [14]:
-    #             filename = os.path.join(
-    #                 self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-    #             with open(filename, 'r') as f:
-    #                 for line in f:
-    #                     name, label = line.split()
-    #                     if name not in class_labels:
-    #                         class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-    #                     # print(label)
-    #                     if int(label)==1 and class_idx==14:
-    #                         count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-    #                             self.classes[class_idx])
-    #                         if count>=2:
-    #                             count=2
-    #                         class_labels[name][count-1] = int(label)
-    #                     # else:
-    #                     #     class_labels[name][0] = int(1)
-
-
-    #     if os.path.exists(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-    #         for class_idx in [14]:
-    #             filename = os.path.join(
-    #                 '/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-    #             with open(filename, 'r') as f:
-    #                 for line in f:
-    #                     name, label = line.split()
-    #                     if name not in class_labels:
-    #                         class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-    #                     # print(label)
-    #                     if int(label)==1 and class_idx==14:
-    #                         count=self.return_count_obj(os.path.join('/media/rao/Data/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-    #                             self.classes[class_idx])
-    #                         if count>=2:
-    #                             count=2
-    #                         class_labels[name][count-1] = int(label)
-    #                     # else:
-    #                     #     class_labels[name][0] = int(1)
-    #     else:
-    #         raise NotImplementedError(
-    #             'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-        
-
-    #     return list(class_labels.items())
-    def _read_annotations_22(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        num_classes2=22 ## changed
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)!=-1 and (class_idx==14 or class_idx==6):
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=2:
-                                count=2
-                            if count==1:
-                                class_labels[name][class_idx] = int(1)
-                            elif count>1 and class_idx==6:
-                                class_labels[name][18+count] = int(1)
-                            elif count>1 and class_idx==14:
-                                class_labels[name][19+count] =  int(1)
-                            else:
-                                print('count error')
-                        else:
-                            class_labels[name][class_idx] = int(label)
-
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)!=-1 and (class_idx==14 or class_idx==6):
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=2:
-                                count=2
-                            if count==1:
-                                class_labels[name][class_idx] = int(1)
-                            elif count>1 and class_idx==6:
-                                class_labels[name][18+count] = int(1)
-                            elif count>1 and class_idx==14:
-                                class_labels[name][19+count] =  int(1)
-                            else:
-                                print('count error')
-                        else:
-                            class_labels[name][class_idx] = int(label)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def _read_annotations_count3(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        num_classes2=1 ## changed
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in [14]:
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)!=-1 and class_idx==14:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=2:
-                                count=2
-                            class_labels[name][0] = int(count)
-                        # elif int(label)==0:
-                        #     class_labels[name][0] = int(1)
-
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in [14]:
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = np.zeros(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)!=-1 and class_idx==14:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=2:
-                                count=2
-                            class_labels[name][0] = int(count)
-                        # elif int(label)==0:
-                        #     class_labels[name][0] = int(1)
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-        
-        return list(class_labels.items())
-    ## changed
-    def _read_annotations2(self, split):
-        class_labels = OrderedDict()
-        num_classes = len(self.classes)
-        num_classes2=23 ## changed
-        if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)==1 and class_idx==14:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2012/VOCdevkit/VOC2012/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=4:
-                                count=4
-                            if count==1:
-                                class_labels[name][class_idx] = int(label)
-                            elif count>1:
-                                class_labels[name][18+count] = int(label)
-                            else:
-                                print('count error')
-
-        if os.path.exists(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', split + '.txt')):
-            for class_idx in range(num_classes):
-                filename = os.path.join(
-                    self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/ImageSets/Main/', self.classes[class_idx] + '_' + split + '.txt')
-                with open(filename, 'r') as f:
-                    for line in f:
-                        name, label = line.split()
-                        if name not in class_labels:
-                            class_labels[name] = -1*np.ones(num_classes2,dtype=int)
-                        # print(label)
-                        if int(label)==1 and class_idx==14:
-                            count=self.return_count_obj(os.path.join(self.poc_path+'/Datasets/Pascal_2007/VOCdevkit/VOC2007/Annotations/',name+'.xml'),
-                                self.classes[class_idx])
-                            if count>=4:
-                                count=4
-                            if count==1:
-                                class_labels[name][class_idx] = int(label)
-                            elif count>1:
-                                class_labels[name][18+count] = int(label)
-                            else:
-                                print('count error')
-        else:
-            raise NotImplementedError(
-                'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-
-        return list(class_labels.items())
-
-    def return_count_obj(self,xml_file,class_name):
-        count=0
-        tree = ET.parse(xml_file)
-        objs = tree.findall('object')
-        for ix, obj in enumerate(objs):
-            if obj.find('name').text==class_name:
-                count+=1
-        return count
 
     def return_count_obj_rm_diff(self,xml_file,class_name):
         count=0
@@ -958,7 +297,6 @@ class VOC_Classification(Dataset):
                 y2 = float(bbox.find('ymax').text)-1
                 mask_obj[int(np.round((x1+x2)/2*dim/width-0.5)),int(np.round((y1+y2)/2*dim/height-0.5))]+=1
         return mask_obj      
-    ## changed
 
     def __getitem__(self, index):
         filename, target = self.image_labels[index]
@@ -983,14 +321,13 @@ class VOC_Classification(Dataset):
 
     def __len__(self):
         return len(self.image_labels)
-    
 
 @register
 def pascal_voc_classification(
     split: str,
     data_dir: str,
     year: int = 2007,
-    num_classes_used: int = 0,
+    dataloader_flag: str = 'counting',
     transform: Optional[Callable] = None,
     target_transform: Optional[Callable] = None) -> Dataset:
     """PASCAL VOC dataset.
@@ -998,30 +335,13 @@ def pascal_voc_classification(
 
     object_categories = pascal_voc_object_categories()
     dataset = 'VOC' + str(year)
-    return VOC_Classification(data_dir, dataset, split, object_categories,num_classes_used, transform, target_transform)
-
-
-## added function to load coco ground truth
-
-import sys
-sys.path.insert(0, '/home/guolei/Downloads/cocoapi-master/PythonAPI')
-import matplotlib.pyplot as plt
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-import numpy as np
-import skimage.io as io
-import pylab
-# from cocostuff import pngToCocoResultDemo
-# from pycocotools.cocostuffhelper import segmentationToCocoMask
-import json
-import pickle
-import pycocotools.mask as mask
+    return VOC_Classification(data_dir, dataset, split, object_categories,dataloader_flag, transform, target_transform)
 
 class coco_Classification(Dataset):
-    """Dataset for PASCAL VOC classification.
+    """Dataset for COCO
     """
 
-    def __init__(self, data_dir,split,year,num_classes_used, transform=None, target_transform=None):
+    def __init__(self, data_dir,split,year,dataloader_flag, transform=None, target_transform=None):
         self.data_dir = data_dir
         self.split = split
         ## data_dir: /media/rao/Data/Datasets/MSCOCO/coco/
@@ -1031,14 +351,17 @@ class coco_Classification(Dataset):
         assert os.path.isdir(self.gt_path), 'Could not find ground truth folder "%s".' % self.gt_path
         self.transform = transform
         self.target_transform = target_transform
-        if num_classes_used==171:
+        if dataloader_flag=='counting':
             ## use coco 2017 train data
-            self.image_labels = self._read_annotations_17train(split,year)
+            self.image_labels = self._read_annotations(split,year)
         else:
-            print('num_classes_used not 171')
+            print('error, dataloader_flag should be counting')
+        if split=='val':
+            index=int(len(self.image_labels)/2)
+            self.image_labels=self.image_labels[:index]
         print(len(self.image_labels))
 
-    def _read_annotations_17train(self,split,year):
+    def _read_annotations(self,split,year):
         gt_file=os.path.join(self.gt_path,'instances_'+split+str(year)+'.json')
         cocoGt=COCO(gt_file)
         catids=cocoGt.getCatIds()
@@ -1057,25 +380,7 @@ class coco_Classification(Dataset):
                     class_labels[name]=np.zeros(num_classes)
                 category_id=ann['category_id']
                 class_labels[name][catid2index[category_id]]+=1
-        return list(class_labels.items())   
-
-    # def _read_annotations(self, split):
-    #     class_labels = OrderedDict()
-    #     num_classes = len(self.classes)
-    #     if os.path.exists(os.path.join(self.gt_path, split + '.txt')):
-    #         for class_idx in range(num_classes):
-    #             filename = os.path.join(
-    #                 self.gt_path, self.classes[class_idx] + '_' + split + '.txt')
-    #             with open(filename, 'r') as f:
-    #                 for line in f:
-    #                     name, label = line.split()
-    #                     if name not in class_labels:
-    #                         class_labels[name] = np.zeros(num_classes)
-    #                     class_labels[name][class_idx] = int(label)
-    #     else:
-    #         raise NotImplementedError(
-    #             'Invalid "%s" split for PASCAL %s classification task.' % (split, self.dataset))
-    #     return list(class_labels.items())            
+        return list(class_labels.items())            
 
     def __getitem__(self, index):
         filename, target = self.image_labels[index]
@@ -1097,20 +402,16 @@ class coco_Classification(Dataset):
 
     def __len__(self):
         return len(self.image_labels)
-    
-
 
 @register
 def coco_classification(
     split: str,
     data_dir: str,
-    year: int = 2007,
-    num_classes_used: int = 0,
+    year: int = 2014,
+    dataloader_flag: str = 'counting',
     transform: Optional[Callable] = None,
     target_transform: Optional[Callable] = None) -> Dataset:
-    """PASCAL VOC dataset.
+    """COCO dataset.
     """
 
-    object_categories = pascal_voc_object_categories()
-    dataset = 'instances_' +split+ str(year)
-    return coco_Classification(data_dir, split,year,num_classes_used, transform, target_transform)
+    return coco_Classification(data_dir, split,year,dataloader_flag, transform, target_transform)

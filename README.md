@@ -59,7 +59,7 @@ This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM
 2. For COCO dataset, please go to [COCO](http://cocodataset.org/#download)
 
 ## Demo 
-
+Go to CountSeg/demo and run demo.
 
 ## Test
 To reproduce the results reproted in the paper.

@@ -24,7 +24,7 @@ This respority uses some functions from [PRM](https://github.com/ZhouYanzhao/PRM
       ├── ...
   ├── ...
 ```
-2. Go inside to CountSeg folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
+2. Go inside to "CountSeg" folder by "cd path/CountSeg", where path is where you store CountSeg in your computer.
 3. Install [Nest](https://github.com/ZhouYanzhao/Nest), a flexible tool for building and sharing deep learning modules, created by Yanzhao
    ```
    pip install git+https://github.com/ZhouYanzhao/Nest.git

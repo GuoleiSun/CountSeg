@@ -1,4 +1,5 @@
-# Object Counting and Instance Segmentation with Image-level Supervision, in CVPR 2019 and TPAMI 2020
+## Object Counting and Instance Segmentation with Image-level Supervision, in CVPR 2019 and TPAMI 2020
+This code is built by [Guolei Sun](https://github.com/GuoleiSun). For questions, please contact sunguolei.kaust@gmail.com
 
 [Paper (conference version)](https://arxiv.org/abs/1903.02494) [Paper (journal version)](https://arxiv.org/pdf/1912.06448.pdf) [Supp]() [Presentation]() [Poster]()
 

@@ -1,6 +1,6 @@
-# Object Counting and Instance Segmentation with Image-level Supervision, in CVPR 2019
+# Object Counting and Instance Segmentation with Image-level Supervision, in CVPR 2019 and TPAMI 2020
 
-[Paper](https://arxiv.org/abs/1903.02494) [Supp]() [Presentation]() [Poster]()
+[Paper (conference version)](https://arxiv.org/abs/1903.02494) [Paper (journal version)](https://arxiv.org/pdf/1912.06448.pdf) [Supp]() [Presentation]() [Poster]()
 
 ![block images](https://github.com/GuoleiSun/CountSeg/blob/master/demo/images/block.png)
 
@@ -87,5 +87,12 @@ If you find the code useful for your research, please cite:
     title = {Object Counting and Instance Segmentation with Image-level Supervision},
     booktitle = {CVPR},
     year = {2019}
+}
+
+@article{cholakkal_sun2020towards,
+  title={Towards Partial Supervision for Generic Object Counting in Natural Scenes},
+  author={Cholakkal, Hisham and Sun, Guolei and Khan, Salman and Khan, Fahad Shahbaz and Shao, Ling and Gool, Luc Van},
+  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)},
+  year={2020}
 }
 ```
